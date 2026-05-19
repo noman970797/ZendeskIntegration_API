@@ -1,0 +1,31 @@
+## .NET / C#
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.userprefs
+*.pidb
+
+## Secrets — NEVER commit these
+appsettings.Development.json
+appsettings.Production.json
+*.pfx
+*.pem
+private.key
+
+## EF Core migrations (keep the Migrations/ folder, ignore the snapshot if desired)
+# Migrations/
+
+## Build output
+publish/
+artifacts/
+
+## Rider / VS Code
+.idea/
+.vscode/
+*.DotSettings.user
+
+## OS
+.DS_Store
+Thumbs.db

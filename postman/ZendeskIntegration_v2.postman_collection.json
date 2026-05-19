@@ -1,0 +1,200 @@
+{
+  "info": {
+    "name": "Zendesk Integration API v2",
+    "description": "JWT Authentication, Ticket Creation, Attachment Upload, and Webhook testing for Zendesk — backed by SQL Server.\n\nSetup:\n1. Import this collection and the Environment file.\n2. Fill in your baseUrl and other env vars.\n3. Run in order: Health → Generate Token → Upload File → Create Ticket with Attachment → Simulate Webhook.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": { "method": "GET", "url": "{{baseUrl}}/health" },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"] } }]
+        }
+      ]
+    },
+    {
+      "name": "JWT Authentication",
+      "item": [
+        {
+          "name": "Generate JWT Token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/auth/token",
+            "body": { "mode": "raw", "raw": "{\n  \"externalUserId\": \"{{userId}}\",\n  \"name\": \"{{userName}}\",\n  \"email\": \"{{userEmail}}\"\n}" }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const j = pm.response.json();",
+            "pm.test('Token present', () => pm.expect(j.token).to.be.a('string').and.not.empty);",
+            "pm.environment.set('jwtToken', j.token);",
+            "console.log('JWT saved. Verify at: https://jwt.io/#debugger-io?token=' + j.token);"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "Attachments",
+      "item": [
+        {
+          "name": "Upload File (multipart)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/attachments/upload",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "",
+                  "description": "Select a local file to upload (PNG, PDF, DOCX etc.)"
+                }
+              ]
+            },
+            "description": "Upload a file to Zendesk. The returned uploadToken is used in the Create Ticket request.\nThe test script automatically saves the token to {{uploadToken}}."
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const j = pm.response.json();",
+            "pm.test('Upload token returned', () => pm.expect(j.uploadToken).to.be.a('string').and.not.empty);",
+            "pm.environment.set('uploadToken', j.uploadToken);",
+            "console.log('Upload token saved:', j.uploadToken);"
+          ] } }]
+        },
+        {
+          "name": "Upload File - Too Large (413 Test)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/attachments/upload",
+            "body": { "mode": "formdata", "formdata": [{ "key": "file", "type": "file", "src": "" }] },
+            "description": "Expected to return 413 if file exceeds MaxAttachmentSizeBytes."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tickets",
+      "item": [
+        {
+          "name": "Create Ticket (no attachment)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/tickets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject\": \"Login issue on mobile app\",\n  \"description\": \"User cannot log in using the iOS app since the 4.2 update.\",\n  \"tags\": [\"mobile\", \"ios\", \"login\"],\n  \"requesterName\": \"Jane Smith\",\n  \"requesterEmail\": \"jane@example.com\",\n  \"priority\": \"high\",\n  \"type\": \"problem\",\n  \"attachmentTokens\": []\n}"
+            }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 201', () => pm.response.to.have.status(201));",
+            "const j = pm.response.json();",
+            "pm.test('Success true', () => pm.expect(j.success).to.be.true);",
+            "pm.test('ZendeskTicketId returned', () => pm.expect(j.zendeskTicketId).to.be.a('number'));",
+            "pm.environment.set('lastZendeskTicketId', j.zendeskTicketId);",
+            "console.log('Zendesk ticket:', j.zendeskTicketId, 'URL:', j.ticketUrl);"
+          ] } }]
+        },
+        {
+          "name": "Create Ticket WITH Attachment",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/tickets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject\": \"Screenshot attached — UI bug report\",\n  \"description\": \"Please see the attached screenshot showing the broken layout on checkout page.\",\n  \"tags\": [\"ui\", \"bug\", \"checkout\"],\n  \"requesterName\": \"Tom Jones\",\n  \"requesterEmail\": \"tom@example.com\",\n  \"priority\": \"normal\",\n  \"type\": \"problem\",\n  \"attachmentTokens\": [\"{{uploadToken}}\"]\n}"
+            },
+            "description": "Run 'Upload File' first to populate {{uploadToken}}."
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 201', () => pm.response.to.have.status(201));",
+            "const j = pm.response.json();",
+            "pm.test('Ticket created with attachment', () => pm.expect(j.success).to.be.true);",
+            "console.log('Ticket with attachment:', j.zendeskTicketId);"
+          ] } }]
+        },
+        {
+          "name": "List Tickets",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/tickets?page=1&pageSize=10", "host": ["{{baseUrl}}"], "path": ["api","tickets"], "query": [{"key":"page","value":"1"},{"key":"pageSize","value":"10"}] }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "pm.test('Tickets array present', () => pm.expect(pm.response.json().tickets).to.be.an('array'));"
+          ] } }]
+        },
+        {
+          "name": "Get Ticket by ID",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/tickets/1" }
+        }
+      ]
+    },
+    {
+      "name": "Webhooks",
+      "item": [
+        {
+          "name": "Simulate Webhook — Agent Reply",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Zendesk-Webhook-Signature", "value": "{{webhookSignature}}", "description": "Leave blank to test without signature validation (dev only)" }
+            ],
+            "url": "{{baseUrl}}/api/webhooks/zendesk",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ticket_id\": {{lastZendeskTicketId}},\n  \"ticket_title\": \"Login issue on mobile app\",\n  \"ticket_status\": \"open\",\n  \"ticket_priority\": \"high\",\n  \"ticket_url\": \"https://{{subdomain}}.zendesk.com/agent/tickets/{{lastZendeskTicketId}}\",\n  \"latest_comment\": \"Hi, I've reviewed the issue and a fix will be deployed within 24 hours.\",\n  \"latest_comment_author_name\": \"Support Agent\",\n  \"latest_comment_author_email\": \"agent@mycompany.com\",\n  \"is_public_comment\": true,\n  \"requester_name\": \"Jane Smith\",\n  \"requester_email\": \"jane@example.com\",\n  \"event_type\": \"agent_reply\",\n  \"updated_at\": \"{{$isoTimestamp}}\"\n}"
+            },
+            "description": "Simulates a webhook call from Zendesk. In production, Zendesk POSTs this automatically.\nLeave X-Zendesk-Webhook-Signature blank if WebhookSigningSecret is not yet configured."
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const j = pm.response.json();",
+            "pm.test('Processed field present', () => pm.expect(j).to.have.property('processed'));",
+            "console.log('Webhook result:', JSON.stringify(j));"
+          ] } }]
+        },
+        {
+          "name": "Simulate Webhook — Ticket Closed",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Zendesk-Webhook-Signature", "value": "{{webhookSignature}}" }
+            ],
+            "url": "{{baseUrl}}/api/webhooks/zendesk",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ticket_id\": {{lastZendeskTicketId}},\n  \"ticket_status\": \"solved\",\n  \"ticket_priority\": \"high\",\n  \"event_type\": \"ticket_closed\",\n  \"updated_at\": \"{{$isoTimestamp}}\"\n}"
+            }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));"
+          ] } }]
+        },
+        {
+          "name": "Simulate Webhook — Bad Signature (401 Test)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Zendesk-Webhook-Signature", "value": "invalid-signature-abc123" }
+            ],
+            "url": "{{baseUrl}}/api/webhooks/zendesk",
+            "body": { "mode": "raw", "raw": "{\"ticket_id\": 99999, \"ticket_status\": \"open\"}" },
+            "description": "Should return 401 when WebhookSigningSecret is configured and signature is wrong."
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 401 or 200 (if no secret configured)', () => pm.expect([200, 401]).to.include(pm.response.code));"
+          ] } }]
+        }
+      ]
+    }
+  ]
+}

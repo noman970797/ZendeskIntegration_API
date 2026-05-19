@@ -1,0 +1,250 @@
+{
+  "info": {
+    "name": "Zendesk Integration API",
+    "description": "JWT Authentication and Ticket Creation for Zendesk — backed by SQL Server.\n\nSetup:\n1. Import this collection and the Environment file.\n2. Set your values in the Environment (baseUrl, etc.).\n3. Run 'Generate JWT Token' first, then 'Create Ticket'.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/health",
+            "description": "Verifies the API and SQL Server connection are healthy."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Body contains Healthy', () => pm.expect(pm.response.text()).to.include('Healthy'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "JWT Authentication",
+      "item": [
+        {
+          "name": "Generate JWT Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/auth/token",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"externalUserId\": \"{{userId}}\",\n  \"name\": \"{{userName}}\",\n  \"email\": \"{{userEmail}}\"\n}"
+            },
+            "description": "Generates a Zendesk Messaging JWT token. Copy the token value and paste it into jwt.io to verify the claims."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Token is present', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.token).to.be.a('string').and.not.empty;",
+                  "    pm.environment.set('jwtToken', json.token);",
+                  "    console.log('JWT Token saved to environment.');",
+                  "    console.log('Paste into jwt.io to verify: https://jwt.io/#debugger-io?token=' + json.token);",
+                  "});",
+                  "pm.test('Algorithm is returned', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.algorithm).to.be.oneOf(['HS256', 'RS256']);",
+                  "});",
+                  "pm.test('IssuedAt and ExpiresAt are present', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.issuedAt).to.be.a('string');",
+                  "    pm.expect(json.expiresAt).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Generate JWT Token - Missing Email (400 Test)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/auth/token",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"externalUserId\": \"user-bad\",\n  \"name\": \"Bad User\",\n  \"email\": \"\"\n}"
+            },
+            "description": "Should return 400 Bad Request when email is missing."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Tickets",
+      "item": [
+        {
+          "name": "Create Ticket",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/tickets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject\": \"Login issue on mobile app\",\n  \"description\": \"User is unable to log in using the iOS app since the 4.2 update. The error message reads 'Session expired'. Clearing app cache does not resolve the issue.\",\n  \"tags\": [\"mobile\", \"ios\", \"login\", \"urgent\"],\n  \"requesterName\": \"Jane Smith\",\n  \"requesterEmail\": \"jane.smith@example.com\",\n  \"priority\": \"high\",\n  \"type\": \"problem\"\n}"
+            },
+            "description": "Creates a ticket in Zendesk and saves it to SQL Server. Check your Zendesk Dashboard to see the ticket appear live."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('Success is true', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});",
+                  "pm.test('ZendeskTicketId is returned', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.zendeskTicketId).to.be.a('number');",
+                  "    pm.environment.set('lastTicketId', json.zendeskTicketId);",
+                  "    console.log('Zendesk ticket ID: ' + json.zendeskTicketId);",
+                  "    console.log('View at: ' + json.ticketUrl);",
+                  "});",
+                  "pm.test('TicketUrl is present', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.ticketUrl).to.include('zendesk.com');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Ticket - Normal Priority",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/tickets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject\": \"Question about billing cycle\",\n  \"description\": \"When does my subscription renew? I want to confirm before the end of the month.\",\n  \"tags\": [\"billing\", \"subscription\"],\n  \"requesterName\": \"Tom Jones\",\n  \"requesterEmail\": \"tom@example.com\",\n  \"priority\": \"normal\",\n  \"type\": \"question\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201 Created', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Tickets (Local DB)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets?page=1&pageSize=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tickets"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "10" }
+              ]
+            },
+            "description": "Returns tickets stored in SQL Server (paginated)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Response has tickets array', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.tickets).to.be.an('array');",
+                  "    pm.expect(json.totalCount).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Ticket by ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/tickets/1",
+            "description": "Retrieves a single ticket by local SQL Server ID."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 or 404', () => {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Ticket - Missing Subject (400 Test)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/tickets",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject\": \"\",\n  \"description\": \"Missing subject test\"\n}"
+            },
+            "description": "Should return 400 when subject is empty."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
